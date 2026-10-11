@@ -1,0 +1,105 @@
+/** Native-browser verification of the expanded source and standalone exports. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile,writeFile,mkdir,mkdtemp,rm} from 'node:fs/promises';
+import path from 'node:path';
+import {tmpdir} from 'node:os';
+import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
+import {createApp} from '../server/app.mjs';
+import {createSpec,makeSection} from '../shared/content.mjs';
+import {validateSpec} from '../shared/schema.mjs';
+import {EXPANSION_BLOCKS} from '../shared/expansion.mjs';
+import {WIDGETS,makeWidget} from '../shared/widgets.mjs';
+import {SHOWCASES,makeShowcase} from '../shared/showcases.mjs';
+import {createExportFiles} from '../shared/export.mjs';
+import {BUNDLED_NOTICES} from '../shared/notices.mjs';
+import {PNG_IMAGE} from './fixtures/images.mjs';
+
+test('expanded components work on mobile, by keyboard, offline and inside the editor', {skip:!process.env.FORMA_PLAYWRIGHT_MODULE,timeout:240000},async t=>{
+  const{chromium}=await import(pathToFileURL(process.env.FORMA_PLAYWRIGHT_MODULE));
+  const directory=await mkdtemp(path.join(tmpdir(),'forma-expansion-'));
+  const browser=await chromium.launch({headless:true,...(process.env.FORMA_TEST_BROWSER?{executablePath:process.env.FORMA_TEST_BROWSER}:{})});
+  const app=await createApp({dataDir:path.join(directory,'projects'),fetchImpl:()=>{throw new Error('No provider request authorized by this test.');}});
+  t.after(async()=>{await browser.close();await app.close();await rm(directory,{recursive:true,force:true});});
+  const css=await readFile(new URL('../public/site.css',import.meta.url),'utf8');
+  const script=(await Promise.all(['site-runtime.js','interface-runtime.js','interaction-runtime.js'].map(name=>readFile(new URL('../public/'+name,import.meta.url),'utf8')))).join('\n').replace(/\r\n?/g,'\n');
+  const notices=Object.fromEntries(await Promise.all(BUNDLED_NOTICES.map(async name=>[name,await readFile(new URL('../licenses/'+name+'.txt',import.meta.url),'utf8')])));
+  const assets={css,script,scriptHash:createHash('sha256').update(script).digest('base64'),notices,originalLicense:await readFile(new URL('../LICENSE',import.meta.url),'utf8')};
+  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],outgoing=[];
+  page.on('pageerror',error=>errors.push(error.message));page.on('request',request=>{if(/^https?:/.test(request.url()))outgoing.push(request.url());});
+  const open=async spec=>{const files=createExportFiles(spec,assets);await writeFile(path.join(directory,'index.html'),files['index.html']);await page.goto(pathToFileURL(path.join(directory,'index.html')).href);await page.locator('.site').waitFor();};
+  for(const entry of EXPANSION_BLOCKS){const spec=createSpec();spec.sections=[makeSection(entry.group,entry.id)];await open(spec);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),entry.id+' fits mobile');}
+  const captures=path.resolve('.impeccable/review');await mkdir(captures,{recursive:true});
+  for(const key of Object.keys(SHOWCASES)){
+    await page.setViewportSize({width:1440,height:1000});await open(makeShowcase(key));assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),key+' fits desktop');
+    if(key==='software'){await page.screenshot({path:path.join(captures,'generated-desktop.png'),fullPage:true});await page.screenshot({path:path.join(captures,'generated-desktop-viewport.png')});}
+    await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),key+' fits mobile');
+    if(key==='software'){
+      const introduction=await page.locator('.logos-wall .section-heading').boundingBox(),rail=await page.locator('.logos-wall .xp-logo-rail').boundingBox();
+      assert.ok(introduction.width>=300&&rail.y>=introduction.y+introduction.height,'Logo introduction retains full mobile width above the independently scrolling marks');
+      const featureTitle=await page.locator('.features-tabs .xp-copy:visible h3').first().boundingBox(),featureMeta=await page.locator('.features-tabs .xp-copy:visible .xp-meta').first().boundingBox();
+      assert.ok(featureMeta.y>=featureTitle.y+featureTitle.height,'Feature metadata follows its heading');
+      await page.screenshot({path:path.join(captures,'generated-mobile.png'),fullPage:true});await page.screenshot({path:path.join(captures,'generated-mobile-viewport.png')});
+    }
+  }
+  const spec=validateSpec(createSpec());spec.theme.motion='none';
+  spec.sections=[makeSection('hero','app-product'),makeSection('features','features-tabs'),makeSection('gallery','gallery-filter'),{...makeSection('gallery','gallery-lightbox'),id:'gallery-viewer'},makeSection('pricing','pricing-period'),makeSection('faq','faq-search')];
+  const kinds=['dialog','drawer','command','copy','segmented','confirm','range','tags','filters','sort','pagination','combobox','lightbox','compare','breadcrumbs','menu','split','popover','collapse','toast','alert','stepper','empty','wizard'];
+  spec.sections.forEach((section,index)=>{section.widgets=kinds.slice(index*4,index*4+4).map(kind=>makeWidget(kind,kind));section.items.forEach((item,ordinal)=>{item.meta=ordinal%2?'Other':'Main';if(['hero','gallery','features'].includes(section.group)){item.image=PNG_IMAGE;item.alt='Authored image '+ordinal;}});});
+  spec.sections[4].items[0].price='$12 monthly / $120 annual';
+  await page.setViewportSize({width:1440,height:1000});await open(spec);
+  const tabs=page.locator('.features-tabs .xp-tablist button');await tabs.first().focus();await page.keyboard.press('End');
+  assert.equal(await tabs.last().getAttribute('aria-selected'),'true');assert.equal(await page.locator('.features-tabs [data-xp-panel]').last().isVisible(),true);
+  await page.locator('.gallery-filter [data-xp-filter="Other"]').click();assert.equal(await page.locator('.gallery-filter [data-xp-block="filter"] [data-xp-record]:visible').count(),1);
+  await page.locator('.pricing-period [data-xp-period="annual"]').click();assert.ok(await page.locator('.pricing-period [data-xp-annual]').first().isVisible());assert.equal(await page.locator('.pricing-period [data-xp-monthly]').first().isVisible(),false);
+  const dialogWidget=page.locator('[data-xp-widget="dialog"]');await dialogWidget.locator('[data-xp-action="open-widget"]').click();assert.ok(await page.locator('dialog[open]').isVisible());await page.keyboard.press('Escape');assert.equal(await page.locator('dialog[open]').count(),0);assert.ok(await dialogWidget.locator('[data-xp-action="open-widget"]').evaluate(node=>node===document.activeElement));
+  await page.locator('[data-xp-widget="drawer"] [data-xp-action="open-widget"]').click();assert.ok(await page.locator('dialog.xp-drawer[open]').isVisible());await page.keyboard.press('Escape');
+  await page.locator('[data-xp-widget="command"] [data-xp-action="open-widget"]').click();await page.locator('dialog [data-xp-search]').fill('Second');assert.equal(await page.locator('dialog [data-xp-record]:visible').count(),1);await page.keyboard.press('Escape');
+  await page.locator('.gallery-lightbox [data-xp-action="lightbox"]').first().click();await page.keyboard.press('ArrowRight');assert.match(await page.locator('dialog[open]').getAttribute('aria-label'),/^2 of 3/);await page.keyboard.press('Escape');
+  const confirm=page.locator('[data-xp-widget="confirm"] [data-xp-action="confirm"]');await confirm.click();assert.equal(await confirm.getAttribute('aria-pressed'),'false');await confirm.click();assert.equal(await confirm.getAttribute('aria-pressed'),'true');
+  await page.locator('[data-xp-widget="segmented"] button').nth(1).click();assert.equal(await page.locator('[data-xp-widget="segmented"] [aria-pressed="true"]').count(),1);
+  const range=page.locator('[data-xp-widget="range"] input');await range.focus();await page.keyboard.press('ArrowRight');assert.equal(await page.locator('[data-xp-widget="range"] output').textContent(),'51');
+  await page.locator('[data-xp-widget="tags"] input').fill('<img src=x onerror=bad()>');await page.locator('[data-xp-widget="tags"] [data-xp-action="add-tag"]').click();assert.equal(await page.locator('[data-xp-widget="tags"] .xp-tags li').count(),4);assert.equal(await page.locator('[data-xp-widget="tags"] img').count(),0);await page.locator('[data-xp-widget="tags"] [data-xp-action="remove-tag"]').last().click();
+  await page.locator('[data-xp-widget="pagination"] [data-xp-action="page-next"]').click();assert.match(await page.locator('[data-xp-widget="pagination"] [data-xp-status]').textContent(),/Page 2 of 2/);
+  await page.locator('[data-xp-widget="combobox"] input').fill('Third');assert.equal(await page.locator('[data-xp-widget="combobox"] [data-xp-record]:visible').count(),1);
+  await page.locator('[data-xp-widget="filters"] [data-xp-filter="Second option"]').click();assert.equal(await page.locator('[data-xp-widget="filters"] [data-xp-record]:visible').count(),1);
+  await page.locator('[data-xp-widget="sort"] [data-xp-action="sort"]').click();assert.ok(await page.locator('[data-xp-widget="sort"] [data-xp-status]').textContent());
+  const compare=page.locator('[data-xp-widget="compare"] input');await compare.focus();await page.keyboard.press('End');assert.equal(await page.locator('[data-xp-widget="compare"] output').textContent(),'100%');
+  await page.locator('[data-xp-widget="toast"] button').click();assert.ok(await page.locator('[data-xp-widget="toast"] [data-xp-status]').textContent());
+  await page.locator('[data-xp-widget="alert"] button').click();assert.equal(await page.locator('[data-xp-widget="alert"] [data-xp-record]').isVisible(),false);
+  await page.locator('[data-xp-widget="stepper"] button').last().click();assert.equal(await page.locator('[data-xp-widget="stepper"] [aria-pressed="true"]').count(),1);
+  await page.locator('[data-xp-widget="empty"] button').click();assert.equal(await page.locator('[data-xp-widget="empty"] li').count(),1);
+  const wizard=page.locator('[data-xp-widget="wizard"]');await wizard.locator('[data-xp-action="step-next"]').click();await wizard.locator('[data-xp-action="step-next"]').click();await wizard.locator('[data-xp-action="step-next"]').click();assert.match(await wizard.locator('[data-xp-status]').textContent(),/completed/);
+  await page.emulateMedia({reducedMotion:'reduce'});await tabs.first().click();assert.equal(await tabs.first().getAttribute('aria-selected'),'true','Reduced motion retains functional tabs');
+  const noJsContext=await browser.newContext({javaScriptEnabled:false,viewport:{width:390,height:844}});const noJs=await noJsContext.newPage();await noJs.goto(pathToFileURL(path.join(directory,'index.html')).href);assert.ok(await noJs.locator('.features-tabs [data-xp-panel]').last().isVisible());assert.ok(await noJs.locator('[data-xp-widget="dialog"] [data-xp-dialog-content]').isVisible());await noJsContext.close();
+  const saved=await app.store.create(spec);await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+app.server.address().port;
+  const editor=await browser.newPage({viewport:{width:2000,height:1100}});editor.on('pageerror',error=>errors.push(error.message));await editor.addInitScript(id=>{if(window===window.top){localStorage.setItem('forma:last-project',id);localStorage.setItem('forma:locale','en');}},saved.id);await editor.goto(base);
+  await editor.waitForFunction(()=>document.querySelector('#preview-frame').style.transform==='scale(1)');if(await editor.locator('#cookie-accept-button').isVisible())await editor.locator('#cookie-accept-button').click();
+  const frame=editor.frameLocator('#preview-frame');assert.ok(await frame.locator('.features-tabs [data-xp-panel]').last().isVisible(),'Inspect shows every panel');
+  await editor.locator('#inspect-button').click();await frame.locator('.features-tabs .xp-tablist button').last().click();assert.equal(await frame.locator('.features-tabs .xp-tablist button').last().getAttribute('aria-selected'),'true');
+  await editor.locator('#inspect-button').click();assert.ok(await frame.locator('.features-tabs [data-xp-panel]').first().isVisible());await editor.locator('#inspect-button').click();assert.equal(await frame.locator('.features-tabs .xp-tablist button').last().getAttribute('aria-selected'),'true','Interact restores the selected tab');
+  await editor.locator('[data-left-tab="library"]').click();await editor.locator('[data-library-filter="all"]').click();assert.equal(await editor.locator('#library-list [data-add-block]').count(),105);
+  await editor.locator('[data-library-filter="elements"]').click();assert.equal(await editor.locator('[data-add-widget]').count(),24);await editor.locator('[data-preview-widget="range"]').click();await editor.frameLocator('#component-preview-frame').locator('[data-xp-range]').waitFor();await editor.locator('[data-close="component-preview-dialog"]').click();
+  await editor.locator('[data-library-filter="styles"]').click();assert.equal(await editor.locator('[data-apply-style]').count(),12);
+  await editor.locator('[data-library-filter="examples"]').click();assert.equal(await editor.locator('[data-open-example]').count(),8);
+  const restored=await app.store.get(saved.id);assert.equal(restored.spec.sections[0].widgets.length,4,'Visitor interactions never mutate canonical project elements');
+  await editor.locator('[data-inspector-tab="content"]').click();
+  await editor.locator('[data-remove-widget="dialog"]').click();
+  await editor.locator('[data-library-filter="elements"]').click();await editor.locator('[data-add-widget="range"]').click();
+  const rangeLabel=editor.locator('[data-widget-field="label"]').last();await rangeLabel.fill('Visitor capacity');await rangeLabel.press('Tab');
+  await editor.locator('[data-widget-field="slot"]').last().selectOption('tools');
+  await frame.locator('[data-xp-widget="range"] label').filter({hasText:'Visitor capacity'}).waitFor();
+  await editor.locator('#undo-button').click();assert.equal(await editor.locator('[data-widget-field="slot"]').last().inputValue(),'content');
+  await editor.locator('#redo-button').click();assert.equal(await editor.locator('[data-widget-field="slot"]').last().inputValue(),'tools');
+  await editor.locator('[data-library-filter="styles"]').click();await editor.locator('[data-apply-style="glass"]').click();
+  await editor.locator('[data-inspector-tab="design"]').click();assert.equal(await editor.locator('#theme-style').inputValue(),'glass');
+  await editor.locator('#undo-button').click();assert.equal(await editor.locator('#theme-style').inputValue(),'default');await editor.locator('#redo-button').click();assert.equal(await editor.locator('#theme-style').inputValue(),'glass');
+  await editor.locator('[data-library-filter="examples"]').click();await editor.locator('[data-open-example="software"]').click();
+  await frame.locator('.hero-browser').waitFor();assert.equal(await editor.locator('#theme-style').inputValue(),'product');
+  const previous=await app.store.get(saved.id);assert.equal(previous.spec.theme.style,'glass');assert.equal(previous.spec.sections[0].widgets.at(-1).label,'Visitor capacity');assert.equal(previous.spec.sections[0].widgets.at(-1).slot,'tools');
+  await editor.waitForFunction(oldId=>localStorage.getItem('forma:last-project')!==oldId&&localStorage.getItem('forma:last-project'),saved.id);
+  const exampleId=await editor.evaluate(()=>localStorage.getItem('forma:last-project'));assert.equal((await app.store.get(exampleId)).spec.name,'Software product · prepared example');
+  await editor.screenshot({path:path.join(captures,'editor-desktop.png'),fullPage:true});await editor.setViewportSize({width:390,height:844});await editor.locator('button[data-panel="brief"]').click();await editor.locator('[data-left-tab="library"]').click();await editor.screenshot({path:path.join(captures,'editor-mobile.png'),fullPage:true});
+  assert.equal(Object.keys(WIDGETS).length,kinds.length);assert.deepEqual(errors,[]);assert.deepEqual(outgoing,[],'Standalone pages make no network requests');
+});

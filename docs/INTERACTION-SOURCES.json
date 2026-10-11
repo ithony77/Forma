@@ -1,0 +1,50 @@
+{
+  "FANCY": {
+    "repository": "danielpetho/fancy",
+    "revision": "f9f62c61207b2dd3210476dd98af3c9a5be24094",
+    "component": "src/fancy/components/text/underline-center.tsx",
+    "snapshot": "https://raw.githubusercontent.com/danielpetho/fancy/f9f62c61207b2dd3210476dd98af3c9a5be24094/src/fancy/components/text/underline-center.tsx",
+    "sha256": "f3f58f950e5c4b05b63f3c1e29b46ffbf85630d70430c0db4adbee23e407456d",
+    "licenseSha256": "39b0d9c112b4e80383da88660cbaa64972f741e80205c14fa1b779ff1989cc09",
+    "additionalComponents": [
+      {
+        "component": "src/fancy/components/blocks/stacking-cards.tsx",
+        "snapshot": "https://raw.githubusercontent.com/danielpetho/fancy/f9f62c61207b2dd3210476dd98af3c9a5be24094/src/fancy/components/blocks/stacking-cards.tsx",
+        "sha256": "e44b9a352d3cb15f7a7929399d41df8902664e2a66eae63b065167242d00b228",
+        "attribution": "Khoa Phan, credited by the upstream source"
+      }
+    ]
+  },
+  "WATERMELON": {
+    "repository": "WatermelonCorp/watermellon-registry",
+    "revision": "86052b8fd12bc19bf3bac07625a7f93736c42b17",
+    "component": "components/watermelon/continuous-tabs.tsx",
+    "snapshot": "https://registry.watermelon.sh/r/continuous-tabs.json",
+    "sha256": "0253b4190b5e94ee319067e4fe5221334f09a701c4652c7c5b40c11d7d0f0522",
+    "licenseSha256": "9100dd8da5d153bcbd1f8221849a0032b10039e3f6b764c2edd3df5b2ad161a7"
+  },
+  "USELAYOUTS": {
+    "repository": "iurvish/uselayouts",
+    "revision": "07cc4f4fb8e064643168e6fc8792127af92637f5",
+    "component": "registry/default/example/polaroid-stack.tsx",
+    "snapshot": "https://raw.githubusercontent.com/iurvish/uselayouts/07cc4f4fb8e064643168e6fc8792127af92637f5/registry/default/example/polaroid-stack.tsx",
+    "sha256": "80a9670d63f2692fd5ea5b24b0eabe2d2a85cd0732b6509ba1b69f5ed9284bef",
+    "licenseSha256": "159928ad2fabd3c9b2042f2b36d70ba2d6cd200e5b582a7c8a89ab1ad5eaa6e2"
+  },
+  "CULT": {
+    "repository": "nolly-studio/cult-ui",
+    "revision": "67a66c6ac1cd240914ba688a907611b3437a7a2b",
+    "component": "registry/default/ui/shift-card.tsx",
+    "snapshot": "https://www.cult-ui.com/r/shift-card.json",
+    "sha256": "0e2bc7368f399389b5f1d0ede15197f7a7ac7c464571f820e46ecbcb27a15b1b",
+    "licenseSha256": "78045e58dfd5f039ad350ad293da2ad9a2c0362b82dadb069b1c10be382ddac7"
+  },
+  "VELORA": {
+    "repository": "ColorlibHQ/velora-ui",
+    "revision": "a07bcc129b45eeed3fc070357a6a74b876d96159",
+    "component": "src/components/velora/spotlight-card.tsx",
+    "snapshot": "https://raw.githubusercontent.com/ColorlibHQ/velora-ui/a07bcc129b45eeed3fc070357a6a74b876d96159/src/components/velora/spotlight-card.tsx",
+    "sha256": "6fca1f541f763a3ff5ef4da035da23dbf700fb079cd26b5316d3b18f66b27406",
+    "licenseSha256": "927258f7c47bbada9fe0098558bc04c687f427cdcd55b6b19d19de702cda135c"
+  }
+}
